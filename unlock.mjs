@@ -1,4 +1,4 @@
-import {fetchEnvelope, unlockDataset} from './vault.mjs';
+import {fetchEnvelope, unlockDataset} from './vault.mjs?v=20261019-encrypted-v2';
 export function waitForUnlock() {
   return new Promise(resolve => {
     const form = document.querySelector('#unlock-form');

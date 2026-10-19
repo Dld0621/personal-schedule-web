@@ -13,9 +13,10 @@ export function decode64(text) {
   return Uint8Array.from(atob(text), c => c.charCodeAt(0));
 }
 export function checkEnvelope(value) {
-  if (!value || value.version !== 1 || value.kdf !== 'PBKDF2-SHA256' || value.cipher !== 'AES-256-GCM') throw Error('Unsupported encrypted data');
+  if (!value || ![1, 2].includes(value.version) || value.kdf !== 'PBKDF2-SHA256' || value.cipher !== 'AES-256-GCM') throw Error('Unsupported encrypted data');
   if (!Number.isInteger(value.iterations) || value.iterations < KDF_ITERATIONS || value.iterations > 2000000) throw Error('Unsupported key derivation');
   if (decode64(value.salt).length !== 16) throw Error('Invalid encryption salt');
+  if (value.version === 2 && (!value.wrappedKey || decode64(value.wrappedKey.iv).length !== 12)) throw Error('Invalid encrypted key');
   return value;
 }
 export async function deriveKey(passphrase, salt, iterations = KDF_ITERATIONS) {
@@ -36,13 +37,23 @@ export async function decryptJSON(box, key, context = 'dataset') {
   const bytes = await crypto.subtle.decrypt({name: 'AES-GCM', iv: decode64(box.iv), additionalData: aad(context), tagLength: 128}, key, decode64(box.ciphertext));
   return JSON.parse(decoder.decode(bytes));
 }
-export async function encryptDataset(data, passphrase, salt) {
-  const key = await deriveKey(passphrase, salt);
-  return {version: 1, kdf: 'PBKDF2-SHA256', iterations: KDF_ITERATIONS, salt, cipher: 'AES-256-GCM', ...await encryptJSON(data, key)};
+async function importDataKey(raw) {
+  const bytes = decode64(raw);
+  if (bytes.length !== 32) throw Error('Invalid schedule key');
+  return crypto.subtle.importKey('raw', bytes, {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
+}
+export async function encryptDataset(data, passphrase, salt, rawDataKey = null) {
+  const unlockKey = await deriveKey(passphrase, salt);
+  if (rawDataKey) {
+    const key = await importDataKey(rawDataKey);
+    return {version: 2, kdf: 'PBKDF2-SHA256', iterations: KDF_ITERATIONS, salt, cipher: 'AES-256-GCM', wrappedKey: await encryptJSON({key: rawDataKey}, unlockKey, 'schedule-key'), ...await encryptJSON(data, key)};
+  }
+  return {version: 1, kdf: 'PBKDF2-SHA256', iterations: KDF_ITERATIONS, salt, cipher: 'AES-256-GCM', ...await encryptJSON(data, unlockKey)};
 }
 export async function unlockDataset(envelope, passphrase) {
   checkEnvelope(envelope);
-  const key = await deriveKey(passphrase, envelope.salt, envelope.iterations);
+  const unlockKey = await deriveKey(passphrase, envelope.salt, envelope.iterations);
+  const key = envelope.version === 2 ? await importDataKey((await decryptJSON(envelope.wrappedKey, unlockKey, 'schedule-key')).key) : unlockKey;
   return {key, salt: envelope.salt, iterations: envelope.iterations, dataset: await decryptJSON(envelope, key)};
 }
 export async function fetchEnvelope() {
