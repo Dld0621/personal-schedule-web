@@ -1,5 +1,26 @@
 export const CATEGORIES={all:'全部',course:'课程',exam:'考试',assignment:'作业',meeting:'组会',personal:'个人',activity:'活动'};
 export const STATES={confirmed:'已确认',pending:'待确认',suggested:'建议'};
+export const HUB_SECTIONS={profile:'个人资料',accounts:'平台账号',school:'学校与实验室',devices:'设备',applications:'申请进度',resources:'常用入口'};
+const hubText=(v,max=2000)=>typeof v==='string'&&v.length<=max;
+const secretName=/password|passphrase|passwd|pwd|token|secret|private.?key|api.?key|密码|口令|密钥|验证码|启[用动]码/i;
+const secretValue=/(?:password|passphrase|passwd|pwd|token|secret|private.?key|api.?key|密码|口令|密钥|验证码|启[用动]码)\s*[:：=]\s*\S|-----BEGIN .*PRIVATE KEY-----/i;
+export function safeHubURL(value){if(!value)return '';try{const u=new URL(value);if(!['https:','http:'].includes(u.protocol)||u.username||u.password||[...u.searchParams.keys()].some(k=>secretName.test(k)))return '';return u.href;}catch{return '';}}
+export function validateHubRecord(r){
+  if(!r||typeof r!=='object'||Array.isArray(r))return false;
+  const allowed=['id','section','title','summary','account','url','fields','notes','state','statusLabel','source','relatedEventId'];
+  if(Object.keys(r).some(k=>!allowed.includes(k)))return false;
+  if(!hubText(r.id,100)||!/^[a-zA-Z0-9_-]+$/.test(r.id)||['__proto__','constructor','prototype'].includes(r.id)||!Object.hasOwn(HUB_SECTIONS,r.section)||!hubText(r.title,120)||!r.title.trim()||!Object.hasOwn(STATES,r.state))return false;
+  for(const k of ['summary','account','notes','statusLabel'])if(r[k]!=null&&(!hubText(r[k],k==='notes'?3000:500)||secretValue.test(r[k])))return false;
+  if(secretValue.test(r.title)||r.url&&(!hubText(r.url,1000)||!safeHubURL(r.url)))return false;
+  if(!Array.isArray(r.fields)||r.fields.length>16||r.fields.some(f=>!f||Object.keys(f).some(k=>!['key','label','value'].includes(k))||!hubText(f.key,80)||secretName.test(f.key)||!hubText(f.label,80)||!f.label.trim()||secretName.test(f.label)||!hubText(f.value,1200)||secretValue.test(f.value)))return false;
+  if(new Set(r.fields.map(f=>f.key)).size!==r.fields.length||new Set(r.fields.map(f=>f.label)).size!==r.fields.length)return false;
+  if(!r.source||Object.keys(r.source).some(k=>!['label','verified','method'].includes(k))||!hubText(r.source.label,300)||secretValue.test(r.source.label)||!/^\d{4}-\d{2}-\d{2}$/.test(r.source.verified)||!hubText(r.source.method,80))return false;
+  return r.relatedEventId==null||hubText(r.relatedEventId,120);
+}
+export function validatePersonalHub(h){return h==null||!!(h.version===1&&h.credentialStore==='Apple Passwords'&&hubText(h.updatedAt,50)&&Array.isArray(h.records)&&h.records.length<=300&&h.records.every(validateHubRecord)&&new Set(h.records.map(r=>r.id)).size===h.records.length);}
+export function validateHubLocal(h){return h==null||!!(h&&typeof h==='object'&&Array.isArray(h.additions)&&h.additions.length<=300&&h.additions.every(validateHubRecord)&&h.overrides&&typeof h.overrides==='object'&&Object.entries(h.overrides).every(([id,r])=>id===r?.id&&validateHubRecord(r)));}
+export function mergeHubRecords(h,localHub){const records=new Map();for(const r of h?.records||[])if(validateHubRecord(r))records.set(r.id,r);if(validateHubLocal(localHub)){for(const r of localHub?.additions||[])records.set(r.id,r);for(const r of Object.values(localHub?.overrides||{}))records.set(r.id,r);}return [...records.values()].map(r=>structuredClone(r));}
+export function filterHubRecords(records,{section='all',query=''}={}){const q=query.trim().toLowerCase();return records.filter(r=>(section==='all'||r.section===section)&&(!q||[r.title,r.summary,r.account,r.notes,r.statusLabel,...r.fields.flatMap(f=>[f.label,f.value])].join(' ').toLowerCase().includes(q)));}
 export function plusDays(day,n){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
 export function dayDistance(a,b){return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/86400000);}
 export function weekday(day){return new Date(day+'T12:00:00Z').getUTCDay();}

@@ -25,11 +25,11 @@ export function waitForUnlock() {
         resolve(session);
       } catch {
         input.value = '';
-        error.textContent = '口令不正确，或加密日程暂时无法读取。请检查后重试。';
+        error.textContent = '口令不正确，或加密资料暂时无法读取。请检查后重试。';
         input.focus();
       } finally {
         button.disabled = false;
-        button.textContent = '解锁日程';
+        button.textContent = '解锁空间';
       }
     });
   });
